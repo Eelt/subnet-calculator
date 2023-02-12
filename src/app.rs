@@ -1,6 +1,7 @@
 use eframe::App;
 use uuid::Uuid;
-use std::{net::{SocketAddr, SocketAddrV4, Ipv4Addr, IpAddr, Ipv6Addr}, collections::HashMap};
+use core::slice;
+use std::{net::{SocketAddr, SocketAddrV4, Ipv4Addr, IpAddr, Ipv6Addr}, collections::HashMap, ops::Div};
 
 #[derive(Clone)]
 pub struct SubnetCalculatorApp { 
@@ -25,6 +26,8 @@ impl SubnetCalculatorApp {
             ip_addr: IpAddr::V4(Ipv4Addr::new(0,0,0,0)),
             mask: 32,  
             addr_slice_store: AddrSliceStore::default(),
+            mask_slice_store: AddrSliceStore::default(),
+            wildcard_slice_store: AddrSliceStore::default(),
             is_window_open: true
         };
         
@@ -71,8 +74,6 @@ impl SubnetCalculatorApp {
 
                 if window_contents.ip_addr.is_ipv4() { 
                     // IPv4
-                    println!("IPv4 Addr: {}", window_contents.ip_addr.to_string());
-
 
                     ui.horizontal_top(|ui| {
                         ui.add_sized([10.0, 10.0], egui::TextEdit::singleline(&mut window_contents.addr_slice_store.slice_a));
@@ -87,12 +88,58 @@ impl SubnetCalculatorApp {
                         ui.add_sized([10.0, 10.0], egui::TextEdit::singleline(&mut window_contents.addr_slice_store.slice_d));
                         ui.add_sized([10.0, 10.0], egui::Label::new("/"));
 
-                        ui.add_sized([10.0, 10.0], egui::TextEdit::singleline(&mut window_contents.mask.to_string()));
+                        let mut mask = String::from(window_contents.mask.to_string());
+                        ui.add_sized([10.0, 10.0], egui::TextEdit::singleline(&mut mask));
+                        let mask_i8 = mask.parse::<i8>();
+                        if mask_i8.is_ok() {
+                            let unwrapped_mask = mask_i8.unwrap();
+                            if unwrapped_mask <= 32 {
+                                window_contents.mask = unwrapped_mask;
+                            }
+                        }
 
                     });
                     ui.end_row();
 
                     validate_all_slice_contents(IpVersion::IPv4, &mut window_contents.addr_slice_store);
+
+                    // Mask
+                    ui.horizontal_top(|ui| {
+                        ui.label("Mask:");
+
+                        ui.add_sized([10.0, 10.0], egui::TextEdit::singleline(&mut window_contents.mask_slice_store.slice_a));
+                        ui.add_sized([10.0, 10.0], egui::Label::new("."));
+
+                        ui.add_sized([10.0, 10.0], egui::TextEdit::singleline(&mut window_contents.mask_slice_store.slice_b));
+                        ui.add_sized([10.0, 10.0], egui::Label::new("."));
+
+                        ui.add_sized([10.0, 10.0], egui::TextEdit::singleline(&mut window_contents.mask_slice_store.slice_c));
+                        ui.add_sized([10.0, 10.0], egui::Label::new("."));
+
+                        ui.add_sized([10.0, 10.0], egui::TextEdit::singleline(&mut window_contents.mask_slice_store.slice_d));
+                    });
+
+                    // Wildcard
+                    ui.horizontal_top(|ui| {
+                        ui.label("Wildcard:");
+
+                        ui.add_sized([10.0, 10.0], egui::TextEdit::singleline(&mut window_contents.wildcard_slice_store.slice_a));
+                        ui.add_sized([10.0, 10.0], egui::Label::new("."));
+
+                        ui.add_sized([10.0, 10.0], egui::TextEdit::singleline(&mut window_contents.wildcard_slice_store.slice_b));
+                        ui.add_sized([10.0, 10.0], egui::Label::new("."));
+
+                        ui.add_sized([10.0, 10.0], egui::TextEdit::singleline(&mut window_contents.wildcard_slice_store.slice_c));
+                        ui.add_sized([10.0, 10.0], egui::Label::new("."));
+
+                        ui.add_sized([10.0, 10.0], egui::TextEdit::singleline(&mut window_contents.wildcard_slice_store.slice_d));
+                    });
+
+
+                    // Bits view
+                    ui.horizontal_top(|ui| {
+                        ui.label("Bits analysis: ");
+                    });
                     
                 } else if window_contents.ip_addr.is_ipv6() {
                     // IPv6
@@ -101,6 +148,7 @@ impl SubnetCalculatorApp {
 
             });
             
+            mask_calculator(IpVersion::IPv4, &mut window_contents.mask, &mut window_contents.mask_slice_store, &mut window_contents.wildcard_slice_store);
             update_addressing(window_contents);
         }
 
@@ -134,6 +182,8 @@ pub struct SubnetWindowStore {
     ip_addr: IpAddr,
     mask: i8,
     addr_slice_store: AddrSliceStore,
+    mask_slice_store: AddrSliceStore,
+    wildcard_slice_store: AddrSliceStore,
     is_window_open: bool
 }
 
@@ -229,7 +279,7 @@ fn validate_slice_contents(ip_ver: IpVersion, slice: &mut String) {
 }
 
 #[derive(PartialEq, Copy, Clone)]
-enum IpVersion {
+pub enum IpVersion {
     IPv4,
     IPv6
 }
@@ -262,5 +312,74 @@ pub fn update_addressing(store: &mut SubnetWindowStore) {
             store.addr_slice_store.slice_h.parse().unwrap_or(0)
         ));
     }
+
+}
+
+pub fn mask_calculator(ip_ver: IpVersion, cidr: &mut i8, mask: &mut AddrSliceStore, wildcard: &mut AddrSliceStore) {
+    let max: i8 = if ip_ver == IpVersion::IPv4 { 31 } else { 127 };
+    let slice_size: i8 = if ip_ver == IpVersion::IPv4 { 8 } else { 16 };
+
+    let cidr_coverage_slices: i8 = *cidr / slice_size;
+    let cidr_slice_spill: i8 = *cidr % slice_size; // bits spilling over to the next slice that count as network
+
+    let max_slices = ((max+1) / slice_size);
+    for i in 0..max_slices {
+        mask_slice_calc(ip_ver, i, cidr_coverage_slices, cidr_slice_spill, mask, wildcard);
+    }
+
+
+}
+
+pub fn mask_slice_calc(ip_ver: IpVersion, slice_id: i8, cidr_coverage_slices: i8, spill: i8, mask: &mut AddrSliceStore, wildcard: &mut AddrSliceStore) {
+
+    if cidr_coverage_slices > slice_id { // Works
+        update_slice_from_slice_id(slice_id, String::from("255"), mask);
+        update_slice_from_slice_id(slice_id, String::from("0"), wildcard);
+    } else if spill == 0 || cidr_coverage_slices+1 != slice_id {
+        update_slice_from_slice_id(slice_id, String::from("0"), mask);
+        update_slice_from_slice_id(slice_id, String::from("255"), wildcard);
+    } 
+
+    // TODO: PARTIAL
+    if spill != 0 && cidr_coverage_slices == slice_id {
+
+        if ip_ver == IpVersion::IPv4 {
+            let mut octet: u8 = 0b0000_0000;
+
+            match spill {
+                8 => octet = 0b1111_1111,
+                7 => octet = 0b1111_1110,
+                6 => octet = 0b1111_1100,
+                5 => octet = 0b1111_1000,
+                4 => octet = 0b1111_0000,
+                3 => octet = 0b1110_0000,
+                2 => octet = 0b1100_0000,
+                1 => octet = 0b1000_0000,
+                _ => octet = octet
+            }
+
+            update_slice_from_slice_id(slice_id, octet.to_string(), mask);
+            update_slice_from_slice_id(slice_id, (!octet).to_string(), wildcard);
+            
+        }
+
+    } 
+
+}
+
+pub fn update_slice_from_slice_id(id: i8, slice_value: String, slice_store: &mut AddrSliceStore) {
+
+    match id {
+        0 => slice_store.slice_a = slice_value,
+        1 => slice_store.slice_b = slice_value,
+        2 => slice_store.slice_c = slice_value,
+        3 => slice_store.slice_d = slice_value,
+        4 => slice_store.slice_e = slice_value,
+        5 => slice_store.slice_f = slice_value,
+        6 => slice_store.slice_g = slice_value,
+        7 => slice_store.slice_h = slice_value,
+        _ => println!("Invalid slice id: {} when updating slice from slice id. ", id)
+    }
+
 
 }
