@@ -335,7 +335,7 @@ pub fn mask_slice_calc(ip_ver: IpVersion, slice_id: i8, cidr_coverage_slices: i8
     if cidr_coverage_slices > slice_id { // Works
         update_slice_from_slice_id(slice_id, String::from("255"), mask);
         update_slice_from_slice_id(slice_id, String::from("0"), wildcard);
-    } else if spill == 0 || cidr_coverage_slices+1 != slice_id {
+    } else if spill == 0 || cidr_coverage_slices != slice_id {
         update_slice_from_slice_id(slice_id, String::from("0"), mask);
         update_slice_from_slice_id(slice_id, String::from("255"), wildcard);
     } 
