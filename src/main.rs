@@ -13,6 +13,6 @@ fn main() {
     eframe::run_native(
         "Subnet Calculator",
         native_options,
-            Box::new(|cc| Box::new(SubnetCalculatorApp::new(cc))),
-    );
+            Box::new(|cc| Ok(Box::new(SubnetCalculatorApp::new(cc))),
+    ));
 }

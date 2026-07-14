@@ -1,7 +1,8 @@
-use eframe::App;
+use eframe::{App, Frame};
 use uuid::Uuid;
 use core::slice;
 use std::{net::{SocketAddr, SocketAddrV4, Ipv4Addr, IpAddr, Ipv6Addr}, collections::HashMap, ops::Div};
+use egui::Ui;
 
 #[derive(Clone)]
 pub struct SubnetCalculatorApp { 
@@ -34,7 +35,7 @@ impl SubnetCalculatorApp {
         self.window_store.insert(window_id, store);
     }
 
-    pub fn window_backend(&mut self, ctx: &egui::Context) {
+    pub fn window_backend(&mut self, ctx_ui: &Ui) {
         let mut delete_window_data: Vec<Uuid> = vec![];
         
         for (window_id, window_contents) in &mut self.window_store  {
@@ -48,7 +49,7 @@ impl SubnetCalculatorApp {
                 .vscroll(true)
                 .collapsible(true)
                 .open(&mut window_contents.is_window_open)
-                .show(ctx, |ui| {
+                .show(ctx_ui, |ui| {
                 // Core window logic
 
                 // Choose IPv4 or IPv6; Destructive
@@ -162,18 +163,12 @@ impl SubnetCalculatorApp {
 }
 
 impl App for SubnetCalculatorApp { // Required for eframe/egui
-    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-        
-        
-        egui::SidePanel::left("side_panel").show(ctx, |ui| {
+    fn ui(&mut self, ui: &mut Ui, frame: &mut Frame) {
+        if ui.button("New calculation").clicked() {
+            self.new_calculation_window();
+        }
 
-            if ui.button("New calculation").clicked() {
-                self.new_calculation_window();
-            }
-
-        });
-
-        self.window_backend(ctx);
+        self.window_backend(ui);
     }
 }
 
